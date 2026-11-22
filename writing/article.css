@@ -1,0 +1,116 @@
+/* shared by the pages under writing/ */
+@import url('../kit/demo/tokens.css');
+@import url('../kit/demo/topbar.css');
+
+.wrap {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+article h1 {
+  font-size: clamp(32px, 5vw, 46px);
+  line-height: 1.1;
+  margin: 56px 0 28px;
+}
+article h2 {
+  font-size: 24px;
+  margin: 52px 0 12px;
+}
+article p,
+article li {
+  font-size: 17px;
+  line-height: 1.7;
+  color: #cfd1d6;
+}
+article p {
+  margin: 0 0 18px;
+}
+article ul {
+  margin: 0 0 18px;
+  padding-left: 22px;
+}
+article li {
+  margin-bottom: 8px;
+}
+article code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.88em;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+article pre {
+  margin: 0 0 22px;
+  padding: 16px 18px;
+  overflow-x: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+article pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+figure {
+  margin: 32px 0 36px;
+}
+figure .stage {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg);
+}
+figure canvas {
+  display: block;
+  width: 100%;
+  height: min(56vw, 420px);
+}
+figure .seg {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  border: 1px solid #343842;
+  border-radius: 8px;
+  overflow: hidden;
+}
+figure .seg button {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+figure .seg button[aria-pressed='true'] {
+  background: #232731;
+  color: var(--text);
+}
+figcaption {
+  margin-top: 10px;
+  font-size: 14px;
+  color: var(--dim);
+}
+figure .nogpu {
+  display: none;
+  padding: 16px;
+  font-size: 14px;
+  color: #ffb4ab;
+}
+figure.no-gpu .nogpu {
+  display: block;
+}
+figure.no-gpu canvas,
+figure.no-gpu .seg,
+figure.no-gpu figcaption {
+  display: none;
+}

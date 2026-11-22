@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Radix and bitonic sort in WebGPU and CUDA — Ryan Carty</title>
+    <meta
+      name="description"
+      content="How a radix sort and a bitonic sort work in WebGPU compute shaders, with a CUDA port and measured results."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0e11'/%3E%3Cg fill='%237cc4ff'%3E%3Ccircle cx='13' cy='18.5' r='6.2'/%3E%3Ccircle cx='22.5' cy='11' r='4' fill-opacity='.75'/%3E%3Ccircle cx='23' cy='22' r='2.8' fill-opacity='.6'/%3E%3Ccircle cx='9' cy='8.5' r='2.2' fill-opacity='.5'/%3E%3Ccircle cx='16.5' cy='6.5' r='1.4' fill-opacity='.4'/%3E%3C/g%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="article.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="inner">
+        <a class="name" href="../index.html">Ryan Carty</a>
+        <nav aria-label="Main">
+          <a href="../index.html#work">Work</a><a href="../index.html#projects">Projects</a
+          ><a href="../index.html#writing" aria-current="true">Writing</a
+          ><a href="../index.html#contact">Contact</a><a href="https://github.com/rcarty">GitHub</a>
+        </nav>
+      </div>
+    </header>
+    <div class="wrap">
+      <article>
+        <h1>Radix and bitonic sort in WebGPU and CUDA</h1>
+
+        <p>
+          I wrote two GPU sorts in WGSL compute shaders, a radix sort and a bitonic sort, and ported
+          each one to CUDA with the same structure, so the two APIs could be compared on the same
+          hardware. This page goes through how each sort works and what the numbers look like. The
+          <a href="../rc-gpu-sort/index.html">sorting demo</a> runs both in the browser and animates
+          each pass.
+        </p>
+
+        <h2>Prefix sum comes first</h2>
+        <p>
+          A radix sort is mostly counting. Each pass counts how many keys have each digit, and a
+          prefix sum over those counts says where every digit's block starts in the output. So the
+          scan is the piece everything else stands on.
+        </p>
+        <p>
+          Mine works in blocks of 256, one block per workgroup. Each block is scanned in workgroup
+          memory with a Hillis-Steele scan, which takes eight steps for 256 values. The block totals
+          are written to a second, smaller buffer and scanned the same way, and a final sweep adds
+          each block's offset back down. Three levels cover 16 million values.
+        </p>
+
+        <h2>Radix sort</h2>
+        <p>
+          The sort takes four bits per pass, so 32-bit keys need eight passes. Keys are split into
+          tiles of 1,024, with one 256-thread workgroup per tile. A pass is three stages.
+        </p>
+        <ul>
+          <li>Count the 16 digit values in each tile.</li>
+          <li>Prefix sum over all the counts, laid out digit by digit so one scan does the job.</li>
+          <li>
+            Scatter each key to its digit's offset plus its rank among equal digits in the tile.
+          </li>
+        </ul>
+        <p>
+          Ranking is the fiddly bit. A radix sort has to be stable, so two keys with the same digit
+          need to keep their order, which means I can't just hand out slots with an atomic counter.
+        </p>
+
+        <h2>Ranking inside a tile</h2>
+        <p>
+          Each thread turns its key into a one-hot counter, a 1 in the slot for its digit and zeros
+          elsewhere. A scan over the workgroup then gives every thread the number of earlier keys
+          with the same digit. Sixteen counters would mean sixteen scans, so I pack them. A tile
+          round holds 256 keys, a count fits in 16 bits, and two counters share each 32-bit lane.
+        </p>
+        <pre><code>d = (key &gt;&gt; p.shift) &amp; 15u;
+let bit = 1u &lt;&lt; (16u * (d &amp; 1u));
+let lane = d &gt;&gt; 1u;
+if (lane &lt; 4u) { a[lane] = bit; } else { b[lane - 4u] = bit; }</code></pre>
+        <p>
+          That's eight lanes in two <code>vec4u</code> values, and one scan ranks all sixteen digits
+          at once. No atomics touch the output, so the result is the same every run.
+        </p>
+
+        <h2>Bitonic sort</h2>
+        <p>
+          Bitonic sort is a sorting network. The sequence of compare-and-swap steps is fixed and
+          doesn't depend on the data, which suits a GPU nicely. It does more work than radix, on the
+          order of n log² n compares, but every step is the same simple shape.
+        </p>
+        <p>
+          Steps whose partners are within 512 keys of each other run inside a tile in workgroup
+          memory, many steps per dispatch. Longer strides read and write global memory, one dispatch
+          per step. At a million keys that's 78 dispatches. The key count has to be a power of two.
+        </p>
+
+        <h2>The CUDA port</h2>
+        <p>
+          The CUDA kernels are straight ports. Tile sizes, digit width and scan structure are all
+          the same, with <code>__syncthreads()</code> where WGSL has
+          <code>workgroupBarrier()</code>. Warp intrinsics would make the CUDA version faster, and I
+          left them out on purpose so the comparison is between APIs and not between algorithms.
+          CUB's radix sort and scan run alongside as the tuned baseline.
+        </p>
+
+        <h2>What the numbers say</h2>
+        <p>
+          On an NVIDIA RTX 2080 Ti, sorting 16.7 million random 32-bit keys takes 16.4 ms with the
+          radix sort and 30.6 ms with bitonic. That is 1,023 and 548 million keys a second. The
+          browser's own <code>TypedArray.sort</code> takes 564 ms on the same keys. The prefix sum
+          over the same 16.7 million values takes 0.65 ms. Times are GPU timestamp queries, and
+          submit-to-completion wall clock agrees to within a few milliseconds. The radix sort needs
+          a few runs to settle. The first one or two after the page loads come in anywhere from 22
+          to 50 ms, and these are the settled figures.
+        </p>
+        <p>
+          At one million keys the order flips. Radix takes 1.14 ms and bitonic 0.80 ms, against 30
+          ms for <code>TypedArray.sort</code>, and the prefix sum takes 0.05 ms. That's on the same
+          card, in Chrome 158. A sort this small doesn't keep the GPU busy, and once it clocks down
+          the same sorts take about two and a half times as long, so these are the figures at full
+          speed.
+        </p>
+        <p>
+          The CUDA port matches the WebGPU version almost exactly at both sizes. It takes 16.3 ms
+          for radix and 30.0 ms for bitonic at 16.7 million keys, and 1.13 ms and 0.71 ms at one
+          million. CUB's radix sort does the 16.7 million in 1.66 ms, about ten times faster than my
+          port. That's expected. Mine is a like-for-like port and CUB is a tuned library.
+        </p>
+        <p>
+          Bitonic is closer to radix than its extra work would suggest, and at smaller key counts it
+          actually wins. Two things explain that.
+        </p>
+        <ul>
+          <li>
+            The radix sort's ranking step costs about 64 barriers per tile per pass. That's four
+            rounds of 256 keys, each with an eight-step scan and two barriers a step. Over eight
+            passes it dominates the sort.
+          </li>
+          <li>
+            Bitonic's steps have no scan in them at all, only compares and swaps in a fixed pattern.
+            Its work grows faster than radix's, so it falls behind as the key count grows.
+          </li>
+        </ul>
+
+        <h2>What's next</h2>
+        <ul>
+          <li>Eight-bit digits with 4,096-key tiles. That halves the passes for the radix sort.</li>
+          <li>
+            Cheaper ranking. Each thread counts its own keys in turn and the workgroup does one
+            scan, using subgroup operations where the browser has them.
+          </li>
+          <li>The same benchmark at one and sixteen million keys on AMD and Apple GPUs.</li>
+        </ul>
+
+        <h2>Code and references</h2>
+        <p>
+          The WGSL sorts and the prefix sum are in
+          <a href="https://github.com/rcarty/rc-webgpu-kit">rc-webgpu-kit</a> under
+          <code>src/sort</code> and <code>src/scan</code>. The demo and the CUDA port are in
+          <a href="https://github.com/rcarty/rc-gpu-sort">rc-gpu-sort</a>.
+        </p>
+        <ul>
+          <li>Hillis and Steele, Data Parallel Algorithms, 1986</li>
+          <li>Batcher, Sorting Networks and Their Applications, 1968</li>
+          <li>
+            Harris, Sengupta and Owens, Parallel Prefix Sum (Scan) with CUDA, GPU Gems 3, 2007
+          </li>
+        </ul>
+      </article>
+    </div>
+    <script
+      data-goatcounter="https://rcarty.goatcounter.com/count"
+      async
+      src="https://gc.zgo.at/count.js"
+    ></script>
+  </body>
+</html>

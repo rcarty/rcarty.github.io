@@ -1,0 +1,1268 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Ryan Carty — C++ and GPU software engineer</title>
+    <meta
+      name="description"
+      content="C++ and GPU software engineer. GPU simulation and rendering work, with live WebGPU demos: a fluid solver, Gaussian splat physics, GPU sorting and a drone pilot trained in the browser."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0e11'/%3E%3Cg fill='%237cc4ff'%3E%3Ccircle cx='13' cy='18.5' r='6.2'/%3E%3Ccircle cx='22.5' cy='11' r='4' fill-opacity='.75'/%3E%3Ccircle cx='23' cy='22' r='2.8' fill-opacity='.6'/%3E%3Ccircle cx='9' cy='8.5' r='2.2' fill-opacity='.5'/%3E%3Ccircle cx='16.5' cy='6.5' r='1.4' fill-opacity='.4'/%3E%3C/g%3E%3C/svg%3E"
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Ryan Carty — C++ and GPU software engineer" />
+    <meta
+      property="og:description"
+      content="C++ and GPU software engineer. GPU simulation and rendering work, with live WebGPU demos: a fluid solver, Gaussian splat physics, GPU sorting and a drone pilot trained in the browser."
+    />
+    <meta property="og:url" content="https://rcarty.github.io/" />
+    <meta property="og:image" content="https://rcarty.github.io/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="kit/demo/tokens.css" />
+    <link rel="stylesheet" href="kit/demo/topbar.css" />
+    <style>
+      html {
+        scroll-behavior: smooth;
+      }
+      .wrap {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 32px;
+      }
+
+      /* hero */
+      .hero {
+        position: relative;
+        height: 100vh;
+        min-height: 600px;
+        max-height: 1100px;
+        overflow: hidden;
+        border-bottom: 1px solid var(--line);
+      }
+      #fluid {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .hero-ui {
+        position: relative;
+        z-index: 1;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        pointer-events: none;
+      }
+      .hero-ui a {
+        pointer-events: auto;
+      }
+      header.top {
+        position: fixed;
+        inset: 0 0 auto;
+      }
+      section.block,
+      footer {
+        scroll-margin-top: 64px;
+      }
+      .intro {
+        padding-top: calc(9vh + 72px);
+        max-width: 600px;
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+      }
+      .intro h1 {
+        font-size: clamp(40px, 6vw, 64px);
+        line-height: 1.04;
+        letter-spacing: -0.025em;
+      }
+      .intro p {
+        margin: 0;
+        font-size: 18px;
+        color: var(--muted);
+        max-width: 540px;
+      }
+      .btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding-top: 6px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 20px;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 15px;
+        border: 1px solid #343842;
+        color: var(--text);
+        background: rgba(13, 14, 17, 0.55);
+        backdrop-filter: blur(6px);
+      }
+      .btn:hover {
+        border-color: #4a4f5c;
+        color: var(--text);
+      }
+      .btn.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #0d0e11;
+        font-weight: 600;
+      }
+      .btn.primary:hover {
+        background: #a5d6ff;
+        color: #0d0e11;
+      }
+      .caption {
+        position: absolute;
+        right: 32px;
+        bottom: 24px;
+        z-index: 1;
+        font-size: 12px;
+        color: var(--dim);
+        text-align: right;
+        pointer-events: none;
+      }
+      .fallback {
+        position: absolute;
+        right: 32px;
+        bottom: 24px;
+        max-width: 320px;
+        display: none;
+        font-size: 12px;
+        color: var(--dim);
+        text-align: right;
+      }
+      .no-gpu .fallback {
+        display: block;
+      }
+      .no-gpu .caption {
+        display: none;
+      }
+
+      /* sections */
+      .sec-intro {
+        margin: -12px 0 8px;
+        color: var(--muted);
+        max-width: 680px;
+      }
+      .work {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px 48px;
+        align-items: flex-start;
+        padding: 48px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .work:last-child {
+        border-bottom: 0;
+      }
+      .work .vid {
+        flex: 1 1 480px;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .work video {
+        width: 100%;
+        aspect-ratio: 16/9;
+        object-fit: cover;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #111318;
+        display: block;
+      }
+      .work .txt {
+        flex: 1 1 360px;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .work h3 {
+        font-size: 24px;
+      }
+      .work p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15.5px;
+      }
+      .work p.line {
+        color: var(--text);
+        font-size: 17px;
+      }
+      @media (min-width: 900px) {
+        .work:nth-of-type(even) .vid {
+          order: 2;
+        }
+      }
+      .card .art {
+        display: block;
+        aspect-ratio: 16/10;
+      }
+      .card .art svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      section.block {
+        padding: 88px 0;
+        border-top: 1px solid var(--line);
+      }
+      section.block:first-of-type {
+        border-top: 0;
+      }
+      .sec-head {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 32px;
+      }
+      .sec-head h2 {
+        font-size: 32px;
+      }
+      .grid3 {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 24px;
+      }
+      .card {
+        display: flex;
+        flex-direction: column;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .card .body {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 20px 20px 24px;
+        flex-grow: 1;
+      }
+      .card h3 {
+        font-size: 20px;
+      }
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .tags span {
+        padding: 3px 8px;
+        border: 1px solid #2c3038;
+        border-radius: 4px;
+      }
+      .links {
+        display: flex;
+        gap: 20px;
+        margin-top: auto;
+        padding-top: 8px;
+        font-size: 15px;
+        font-weight: 500;
+      }
+      .rows a {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 8px 24px;
+        padding: 20px 0;
+        border-bottom: 1px solid var(--line);
+        color: var(--text);
+      }
+      .rows a:last-child {
+        border-bottom: 0;
+      }
+      .rows a:hover span {
+        color: var(--accent);
+      }
+      .rows a span {
+        font-size: 18px;
+        font-weight: 500;
+      }
+      footer {
+        padding: 56px 0 64px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 32px;
+      }
+      footer nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        font-size: 15px;
+      }
+      footer nav a {
+        color: var(--muted);
+      }
+      button.btn {
+        font: inherit;
+        font-size: 15px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .email-row,
+      #email-out:not([hidden]) {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+      @media (max-width: 700px) {
+        .wrap {
+          padding: 0 20px;
+        }
+        .intro {
+          padding-top: calc(4vh + 96px);
+        }
+        .caption {
+          left: 20px;
+          right: 20px;
+          text-align: left;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="inner">
+        <a class="name" href="#top">Ryan Carty</a>
+        <nav aria-label="Main">
+          <a href="#work">Work</a><a href="#projects">Projects</a><a href="#writing">Writing</a
+          ><a href="#contact">Contact</a><a href="https://github.com/rcarty">GitHub</a>
+        </nav>
+      </div>
+    </header>
+    <div class="hero" id="hero">
+      <canvas id="fluid" aria-hidden="true"></canvas>
+      <div class="wrap hero-ui">
+        <div class="intro" id="top">
+          <h1>C++ and GPU software engineer</h1>
+          <p>
+            I've spent seven years at INSYDIUM working on NeXus, a GPU particle and simulation
+            add-on for Cinema 4D and Blender. Most recently that has meant MPM and rigid-body
+            solvers, screen-space fluid and volume rendering, and a renderer that draws simulation
+            data inside the host apps on four graphics APIs.
+          </p>
+          <div class="btns">
+            <a class="btn primary" href="#work">See my work</a>
+            <a class="btn" href="#contact">Contact</a>
+          </div>
+        </div>
+      </div>
+      <div class="caption mono">
+        MLS-MPM fluid, screen-space rendered. WebGPU and WGSL, no libraries.<br />Move the cursor
+        through it.
+      </div>
+      <div class="fallback mono">
+        The header is a live fluid simulation. This browser doesn't support WebGPU, so it isn't
+        running here.
+      </div>
+    </div>
+
+    <main class="wrap">
+      <section class="block" id="work">
+        <div class="sec-head">
+          <h2>Work at INSYDIUM</h2>
+          <a href="https://insydium.ltd/products/nexus" style="font-size: 15px"
+            >NeXus product page</a
+          >
+        </div>
+        <p class="sec-intro">
+          NeXus is a GPU particle and simulation add-on for Cinema 4D and Blender. The code is
+          proprietary, so these are videos of some of what I built, with a short summary of each.
+        </p>
+
+        <article class="work">
+          <div class="vid">
+            <video
+              muted
+              loop
+              playsinline
+              preload="none"
+              poster="media/ssf.jpg"
+              data-src="media/ssf.mp4"
+              aria-label="Particles poured onto a floor, drawn as a continuous blue liquid surface"
+            ></video>
+          </div>
+          <div class="txt">
+            <h3>Screen-space fluid rendering</h3>
+            <p class="line">
+              Draws liquid particles as a smooth, shaded surface in the Blender viewport while the
+              simulation plays.
+            </p>
+            <p>
+              I wrote the first version in OpenGL, then rebuilt it inside our native viewport
+              library, so one Slang shader source serves Vulkan, OpenGL, Direct3D 12 and Metal.
+              Particles are drawn as sphere impostors into depth and thickness targets. The depth is
+              smoothed with a bilateral blur, and a final pass rebuilds normals and shades with
+              Fresnel, Beer-Lambert absorption and a specular highlight. That pass writes depth as
+              well, so the fluid sorts correctly against scene geometry.
+            </p>
+            <p>
+              The hard part was running several offscreen passes inside a host that already has its
+              own render pass open.
+            </p>
+            <div class="tags mono">
+              <span>C++17</span><span>Slang</span><span>Vulkan</span><span>OpenGL</span
+              ><span>D3D12</span><span>Metal</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="work">
+          <div class="vid">
+            <video
+              muted
+              loop
+              playsinline
+              preload="none"
+              poster="media/mpm.jpg"
+              data-src="media/mpm.mp4"
+              aria-label="Liquid, elastic, snow and sand materials falling and mixing on one grid"
+            ></video>
+          </div>
+          <div class="txt">
+            <h3>nxMPM: multi-material MPM</h3>
+            <p class="line">
+              A GPU Material Point Method solver for liquid, elastic solids, snow, sand, brittle
+              solids, metal and foam, all on one shared grid.
+            </p>
+            <p>
+              I built the solver, with both an MLS-MPM and a CK-MPM implementation. It runs in Slang
+              compute shaders on Vulkan and Metal, on a sparse grid, so memory follows the material.
+            </p>
+            <p>
+              Each frame takes as many substeps as the simulation needs. It also has mesh
+              signed-distance colliders, sleeping for settled material, per-particle material
+              parameters, and a mesh deformer that tears render meshes where the material is
+              damaged.
+            </p>
+            <div class="tags mono">
+              <span>C++17</span><span>Slang</span><span>Vulkan compute</span><span>Metal</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="work">
+          <div class="vid">
+            <video
+              muted
+              loop
+              playsinline
+              preload="none"
+              poster="media/volume.jpg"
+              data-src="media/volume.mp4"
+              aria-label="An explosion shown twice side by side, ray-marched on the left and sliced on the right"
+            ></video>
+          </div>
+          <div class="txt">
+            <h3>Volume rendering for nxEFX</h3>
+            <p class="line">
+              Live viewport preview of smoke, fire and explosions, with a fast slice mode and a lit
+              ray-marched mode.
+            </p>
+            <p>
+              I implemented both modes in one Slang shader, cross-compiled for Vulkan, OpenGL,
+              Direct3D 12 and Metal. Slice mode builds view-aligned polygons from plane-box
+              intersections in the vertex shader, with no vertex buffer, and corrects opacity for
+              slice spacing. Ray mode marches a 3D texture with empty-space skipping and early
+              termination. It uses Henyey-Greenstein scattering, a shadow march toward the light,
+              and blackbody emission for fire.
+            </p>
+            <p>
+              I ported it from an older preview that used a slower API, which sped it up and made it
+              look better in the viewport.
+            </p>
+            <div class="tags mono">
+              <span>C++17</span><span>Slang</span><span>Vulkan</span><span>OpenGL</span
+              ><span>D3D12</span><span>Metal</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="work">
+          <div class="vid">
+            <video
+              muted
+              loop
+              playsinline
+              preload="none"
+              poster="media/viewport.jpg"
+              data-src="media/viewport.mp4"
+              aria-label="A standalone app showing the same particle simulation in two windows"
+            ></video>
+          </div>
+          <div class="txt">
+            <h3>Native viewport renderer and Dear ImGui host</h3>
+            <p class="line">
+              A C++ library that draws simulation data inside Blender and Cinema 4D on Vulkan,
+              OpenGL, Direct3D 12 and Metal, without a round trip through the CPU.
+            </p>
+            <p>
+              Simulation buffers are shared with the renderer as GPU memory: Vulkan external memory,
+              OpenGL memory objects, or the same Metal buffer. Output goes straight into the host's
+              own colour and depth targets. Direct3D 12 can't open Vulkan memory handles, so it gets
+              a GPU-side mirror synchronised with a shared fence. Hosts that don't expose their
+              device are handled by intercepting the graphics API in-process and recording our
+              passes at a marker draw issued by the plug-in.
+            </p>
+            <p>
+              I wrote much of the library and the standalone Dear ImGui app. The app runs one
+              simulation in side-by-side windows on different backends, so backend differences show
+              up straight away. The renderer shipped as a viewport feature in Blender and Cinema 4D.
+            </p>
+            <div class="tags mono">
+              <span>C++17</span><span>Slang</span><span>Vulkan</span><span>OpenGL</span
+              ><span>D3D12</span><span>Metal</span><span>Dear ImGui</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="work">
+          <div class="vid">
+            <video
+              muted
+              loop
+              playsinline
+              preload="none"
+              poster="media/splat-import.jpg"
+              data-src="media/splat-import.mp4"
+              aria-label="A scanned statue shown as Gaussian splats in the Blender viewport"
+            ></video>
+            <video
+              muted
+              loop
+              playsinline
+              preload="none"
+              poster="media/splat-modifier.jpg"
+              data-src="media/splat-modifier.mp4"
+              aria-label="A scanned church scene with stray splats being removed by a particle modifier"
+            ></video>
+          </div>
+          <div class="txt">
+            <h3>Gaussian splats in Blender (prototype)</h3>
+            <p class="line">
+              Imports, renders, trains and simulates 3D Gaussian splats by treating each splat as a
+              NeXus particle.
+            </p>
+            <p>
+              A weekend experiment. A modifier reads the standard 3DGS .ply, converts from COLMAP's
+              coordinate basis to Blender's, and uploads the splats as particle attributes. An
+              OpenGL renderer sorts them back to front every frame with a compute-shader bitonic
+              sort and draws EWA-projected quads. Because they're particles, the usual forces,
+              collisions and kill modifiers work on them. The second clip uses one to clear stray
+              splats, sped up.
+            </p>
+            <p>
+              I also built a video-to-COLMAP capture pipeline and a differentiable rasteriser with
+              an analytic backward pass, gradient-checked against a Python reference. The church
+              scene was trained with gsplat.
+            </p>
+            <div class="tags mono">
+              <span>Python</span><span>NumPy</span><span>OpenGL compute</span><span>GLSL</span
+              ><span>COLMAP</span><span>gsplat</span>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="block" id="projects">
+        <div class="sec-head">
+          <h2>Projects</h2>
+          <span style="font-size: 14px; color: var(--dim)">Source on GitHub</span>
+        </div>
+        <div class="grid3">
+          <article class="card">
+            <a class="art" href="rc-gpu-rl/index.html" aria-label="Open the drone training demo">
+              <svg viewBox="0 0 320 200" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <g id="drone">
+                    <path d="M-17 0H17M-17 0V-7M17 0V-7M-25 -7H-9M9 -7H25" />
+                    <circle r="3.5" />
+                  </g>
+                </defs>
+                <rect width="320" height="200" fill="#0A0B0E" />
+                <g
+                  fill="#7CC4FF"
+                  fill-opacity=".4"
+                  stroke="#7CC4FF"
+                  stroke-opacity=".4"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                >
+                  <use href="#drone" transform="translate(52 158) rotate(-18)" />
+                  <use href="#drone" transform="translate(92 132) rotate(-12)" />
+                  <use href="#drone" transform="translate(70 96) rotate(-8)" />
+                  <use href="#drone" transform="translate(128 164) rotate(-16)" />
+                  <use href="#drone" transform="translate(140 110) rotate(-9)" />
+                  <use href="#drone" transform="translate(178 140) rotate(-10)" />
+                  <use href="#drone" transform="translate(190 84) rotate(-4)" />
+                  <use href="#drone" transform="translate(226 118) rotate(-5)" />
+                </g>
+                <circle cx="270" cy="58" r="11" fill="none" stroke="#E8E9EC" stroke-width="2.5" />
+                <g fill="#FF9F5A" stroke="#FF9F5A" stroke-width="3" stroke-linecap="round">
+                  <use href="#drone" transform="translate(262 78) rotate(3)" />
+                </g>
+              </svg>
+            </a>
+            <div class="body">
+              <h3>Training an AI drone pilot in WebGPU</h3>
+              <p>
+                A neural network policy learns to fly a quadrotor in 3D, trained from scratch in the
+                browser. Thousands of drones are simulated in parallel on the GPU, and the policy is
+                optimised with evolution strategies, a gradient-free method for reinforcement
+                learning tasks. Every drone gets a different mass and wind (domain randomisation),
+                so the policy has to be robust. Physics, inference, ranking and the Adam update all
+                run in WebGPU compute shaders.
+              </p>
+              <div class="tags mono">
+                <span>WebGPU</span><span>WGSL</span><span>Reinforcement learning</span
+                ><span>Evolution strategies</span>
+              </div>
+              <div class="links">
+                <a href="rc-gpu-rl/index.html">Demo</a
+                ><a href="https://github.com/rcarty/rc-gpu-rl">Code</a>
+              </div>
+            </div>
+          </article>
+          <article class="card">
+            <a class="art" href="rc-gsplat-mpm/index.html" aria-label="Open the splat physics demo">
+              <svg viewBox="0 0 320 200" preserveAspectRatio="none" aria-hidden="true">
+                <rect width="320" height="200" fill="#0A0B0E" />
+                <g fill="#7CC4FF" fill-opacity=".07" stroke="#7CC4FF" stroke-width="1.6">
+                  <ellipse
+                    cx="173"
+                    cy="146"
+                    rx="9"
+                    ry="4.0"
+                    transform="rotate(-42 173 146)"
+                    stroke-opacity="0.25"
+                  />
+                  <ellipse
+                    cx="160"
+                    cy="155"
+                    rx="9"
+                    ry="4.0"
+                    transform="rotate(-29 160 155)"
+                    stroke-opacity="0.25"
+                  />
+                  <ellipse
+                    cx="183"
+                    cy="135"
+                    rx="9"
+                    ry="4.1"
+                    transform="rotate(-55 183 135)"
+                    stroke-opacity="0.27"
+                  />
+                  <ellipse
+                    cx="145"
+                    cy="161"
+                    rx="9"
+                    ry="4.1"
+                    transform="rotate(-15 145 161)"
+                    stroke-opacity="0.28"
+                  />
+                  <ellipse
+                    cx="189"
+                    cy="125"
+                    rx="9"
+                    ry="4.2"
+                    transform="rotate(-70 189 125)"
+                    stroke-opacity="0.30"
+                  />
+                  <ellipse
+                    cx="129"
+                    cy="163"
+                    rx="9"
+                    ry="4.2"
+                    transform="rotate(0 129 163)"
+                    stroke-opacity="0.32"
+                  />
+                  <ellipse
+                    cx="191"
+                    cy="115"
+                    rx="10"
+                    ry="4.3"
+                    transform="rotate(-85 191 115)"
+                    stroke-opacity="0.34"
+                  />
+                  <ellipse
+                    cx="115"
+                    cy="160"
+                    rx="10"
+                    ry="4.4"
+                    transform="rotate(18 115 160)"
+                    stroke-opacity="0.38"
+                  />
+                  <ellipse
+                    cx="191"
+                    cy="108"
+                    rx="10"
+                    ry="4.5"
+                    transform="rotate(-101 191 108)"
+                    stroke-opacity="0.39"
+                  />
+                  <ellipse
+                    cx="115"
+                    cy="96"
+                    rx="10"
+                    ry="4.5"
+                    transform="rotate(39 115 96)"
+                    stroke-opacity="0.40"
+                  />
+                  <ellipse
+                    cx="124"
+                    cy="102"
+                    rx="10"
+                    ry="4.5"
+                    transform="rotate(34 124 102)"
+                    stroke-opacity="0.40"
+                  />
+                  <ellipse
+                    cx="132"
+                    cy="108"
+                    rx="10"
+                    ry="4.5"
+                    transform="rotate(34 132 108)"
+                    stroke-opacity="0.41"
+                  />
+                  <ellipse
+                    cx="106"
+                    cy="87"
+                    rx="10"
+                    ry="4.5"
+                    transform="rotate(49 106 87)"
+                    stroke-opacity="0.41"
+                  />
+                  <ellipse
+                    cx="189"
+                    cy="103"
+                    rx="10"
+                    ry="4.6"
+                    transform="rotate(-118 189 103)"
+                    stroke-opacity="0.44"
+                  />
+                  <ellipse
+                    cx="139"
+                    cy="113"
+                    rx="10"
+                    ry="4.6"
+                    transform="rotate(40 139 113)"
+                    stroke-opacity="0.44"
+                  />
+                  <ellipse
+                    cx="104"
+                    cy="154"
+                    rx="10"
+                    ry="4.7"
+                    transform="rotate(41 104 154)"
+                    stroke-opacity="0.45"
+                  />
+                  <ellipse
+                    cx="99"
+                    cy="77"
+                    rx="10"
+                    ry="4.7"
+                    transform="rotate(64 99 77)"
+                    stroke-opacity="0.45"
+                  />
+                  <ellipse
+                    cx="145"
+                    cy="119"
+                    rx="10"
+                    ry="4.7"
+                    transform="rotate(51 145 119)"
+                    stroke-opacity="0.47"
+                  />
+                  <ellipse
+                    cx="188"
+                    cy="101"
+                    rx="11"
+                    ry="4.8"
+                    transform="rotate(-128 188 101)"
+                    stroke-opacity="0.50"
+                  />
+                  <ellipse
+                    cx="149"
+                    cy="125"
+                    rx="11"
+                    ry="4.9"
+                    transform="rotate(57 149 125)"
+                    stroke-opacity="0.51"
+                  />
+                  <ellipse
+                    cx="96"
+                    cy="66"
+                    rx="11"
+                    ry="4.9"
+                    transform="rotate(84 96 66)"
+                    stroke-opacity="0.51"
+                  />
+                  <ellipse
+                    cx="98"
+                    cy="145"
+                    rx="11"
+                    ry="4.9"
+                    transform="rotate(67 98 145)"
+                    stroke-opacity="0.52"
+                  />
+                  <ellipse
+                    cx="154"
+                    cy="132"
+                    rx="11"
+                    ry="4.9"
+                    transform="rotate(56 154 132)"
+                    stroke-opacity="0.53"
+                  />
+                  <ellipse
+                    cx="179"
+                    cy="48"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(161 179 48)"
+                    stroke-opacity="0.54"
+                  />
+                  <ellipse
+                    cx="168"
+                    cy="53"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(145 168 53)"
+                    stroke-opacity="0.54"
+                  />
+                  <ellipse
+                    cx="191"
+                    cy="46"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(179 191 46)"
+                    stroke-opacity="0.54"
+                  />
+                  <ellipse
+                    cx="231"
+                    cy="133"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-56 231 133)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="219"
+                    cy="145"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-38 219 145)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="238"
+                    cy="117"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-73 238 117)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="205"
+                    cy="48"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-162 205 48)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="160"
+                    cy="60"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(131 160 60)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="187"
+                    cy="100"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-86 187 100)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="241"
+                    cy="100"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-91 241 100)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="160"
+                    cy="140"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(47 160 140)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="205"
+                    cy="152"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-19 205 152)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="238"
+                    cy="83"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-109 238 83)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="219"
+                    cy="55"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-144 219 55)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="231"
+                    cy="67"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-126 231 67)"
+                    stroke-opacity="0.55"
+                  />
+                  <ellipse
+                    cx="191"
+                    cy="154"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(-1 191 154)"
+                    stroke-opacity="0.56"
+                  />
+                  <ellipse
+                    cx="168"
+                    cy="147"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(34 168 147)"
+                    stroke-opacity="0.56"
+                  />
+                  <ellipse
+                    cx="179"
+                    cy="152"
+                    rx="11"
+                    ry="5.0"
+                    transform="rotate(17 179 152)"
+                    stroke-opacity="0.56"
+                  />
+                  <ellipse
+                    cx="154"
+                    cy="68"
+                    rx="11"
+                    ry="5.1"
+                    transform="rotate(124 154 68)"
+                    stroke-opacity="0.57"
+                  />
+                  <ellipse
+                    cx="98"
+                    cy="55"
+                    rx="11"
+                    ry="5.1"
+                    transform="rotate(110 98 55)"
+                    stroke-opacity="0.58"
+                  />
+                  <ellipse
+                    cx="96"
+                    cy="134"
+                    rx="11"
+                    ry="5.1"
+                    transform="rotate(94 96 134)"
+                    stroke-opacity="0.59"
+                  />
+                  <ellipse
+                    cx="149"
+                    cy="75"
+                    rx="11"
+                    ry="5.1"
+                    transform="rotate(123 149 75)"
+                    stroke-opacity="0.59"
+                  />
+                  <ellipse
+                    cx="188"
+                    cy="99"
+                    rx="11"
+                    ry="5.2"
+                    transform="rotate(-52 188 99)"
+                    stroke-opacity="0.60"
+                  />
+                  <ellipse
+                    cx="145"
+                    cy="81"
+                    rx="12"
+                    ry="5.3"
+                    transform="rotate(130 145 81)"
+                    stroke-opacity="0.63"
+                  />
+                  <ellipse
+                    cx="99"
+                    cy="123"
+                    rx="12"
+                    ry="5.3"
+                    transform="rotate(115 99 123)"
+                    stroke-opacity="0.65"
+                  />
+                  <ellipse
+                    cx="104"
+                    cy="46"
+                    rx="12"
+                    ry="5.3"
+                    transform="rotate(137 104 46)"
+                    stroke-opacity="0.65"
+                  />
+                  <ellipse
+                    cx="139"
+                    cy="87"
+                    rx="12"
+                    ry="5.4"
+                    transform="rotate(141 139 87)"
+                    stroke-opacity="0.66"
+                  />
+                  <ellipse
+                    cx="189"
+                    cy="97"
+                    rx="12"
+                    ry="5.4"
+                    transform="rotate(-64 189 97)"
+                    stroke-opacity="0.66"
+                  />
+                  <ellipse
+                    cx="106"
+                    cy="113"
+                    rx="12"
+                    ry="5.5"
+                    transform="rotate(130 106 113)"
+                    stroke-opacity="0.69"
+                  />
+                  <ellipse
+                    cx="132"
+                    cy="92"
+                    rx="12"
+                    ry="5.5"
+                    transform="rotate(146 132 92)"
+                    stroke-opacity="0.69"
+                  />
+                  <ellipse
+                    cx="124"
+                    cy="98"
+                    rx="12"
+                    ry="5.5"
+                    transform="rotate(146 124 98)"
+                    stroke-opacity="0.70"
+                  />
+                  <ellipse
+                    cx="115"
+                    cy="104"
+                    rx="12"
+                    ry="5.5"
+                    transform="rotate(140 115 104)"
+                    stroke-opacity="0.70"
+                  />
+                  <ellipse
+                    cx="191"
+                    cy="92"
+                    rx="12"
+                    ry="5.5"
+                    transform="rotate(-80 191 92)"
+                    stroke-opacity="0.71"
+                  />
+                  <ellipse
+                    cx="115"
+                    cy="40"
+                    rx="12"
+                    ry="5.6"
+                    transform="rotate(159 115 40)"
+                    stroke-opacity="0.72"
+                  />
+                  <ellipse
+                    cx="191"
+                    cy="85"
+                    rx="12"
+                    ry="5.7"
+                    transform="rotate(-97 191 85)"
+                    stroke-opacity="0.76"
+                  />
+                  <ellipse
+                    cx="129"
+                    cy="37"
+                    rx="13"
+                    ry="5.8"
+                    transform="rotate(178 129 37)"
+                    stroke-opacity="0.78"
+                  />
+                  <ellipse
+                    cx="189"
+                    cy="75"
+                    rx="13"
+                    ry="5.8"
+                    transform="rotate(-112 189 75)"
+                    stroke-opacity="0.80"
+                  />
+                  <ellipse
+                    cx="145"
+                    cy="39"
+                    rx="13"
+                    ry="5.9"
+                    transform="rotate(-167 145 39)"
+                    stroke-opacity="0.82"
+                  />
+                </g>
+                <g fill="#FF9F5A" fill-opacity=".15" stroke="#FF9F5A" stroke-width="2">
+                  <ellipse cx="183" cy="65" rx="13" ry="5.9" transform="rotate(-126 183 65)" />
+                  <ellipse cx="160" cy="45" rx="13" ry="6.0" transform="rotate(-153 160 45)" />
+                  <ellipse cx="173" cy="54" rx="13" ry="6.0" transform="rotate(-139 173 54)" />
+                </g>
+              </svg>
+            </a>
+            <div class="body">
+              <h3>Gaussian splats with MPM physics</h3>
+              <p>
+                Splats simulated as MPM particles in WebGPU. Pick jelly, sand, snow or liquid and
+                the object drops and deforms. Each splat's covariance follows the material's
+                deformation gradient, and the splats are depth-sorted every frame with a GPU radix
+                sort. You can load your own .ply too.
+              </p>
+              <div class="tags mono">
+                <span>WebGPU</span><span>WGSL</span><span>MLS-MPM</span><span>3DGS</span>
+              </div>
+              <div class="links">
+                <a href="rc-gsplat-mpm/index.html">Demo</a
+                ><a href="https://github.com/rcarty/rc-gsplat-mpm">Code</a>
+              </div>
+            </div>
+          </article>
+          <article class="card">
+            <a class="art" href="rc-gpu-sort/index.html" aria-label="Open the sorting demo">
+              <svg viewBox="0 0 320 200" preserveAspectRatio="none" aria-hidden="true">
+                <rect width="320" height="200" fill="#0A0B0E" />
+                <g stroke="#7CC4FF" stroke-opacity=".4" stroke-width="4" stroke-linecap="round">
+                  <path d="M26 178V38" />
+                  <path d="M36 178V48" />
+                  <path d="M54 178V28" />
+                  <path d="M64 178V98" />
+                  <path d="M74 178V58" />
+                  <path d="M83 178V148" />
+                  <path d="M92 178V128" />
+                  <path d="M102 178V78" />
+                  <path d="M112 178V88" />
+                  <path d="M121 178V138" />
+                  <path d="M130 178V108" />
+                  <path d="M140 178V118" />
+                </g>
+                <g stroke="#7CC4FF" stroke-width="4" stroke-linecap="round">
+                  <path d="M176 178V148" />
+                  <path d="M186 178V138" />
+                  <path d="M195 178V128" />
+                  <path d="M204 178V118" />
+                  <path d="M214 178V108" />
+                  <path d="M224 178V98" />
+                  <path d="M233 178V88" />
+                  <path d="M242 178V78" />
+                  <path d="M262 178V58" />
+                  <path d="M271 178V48" />
+                  <path d="M280 178V38" />
+                  <path d="M290 178V28" />
+                </g>
+                <g stroke="#FF9F5A" stroke-width="4" stroke-linecap="round">
+                  <path d="M45 178V68" />
+                  <path d="M252 178V68" />
+                </g>
+              </svg>
+            </a>
+            <div class="body">
+              <h3>GPU sorting in WebGPU and CUDA</h3>
+              <p>
+                A radix sort built on prefix sums and a bitonic sorting network, written in WGSL and
+                ported to CUDA with the same structure. The demo sorts the shuffled pixels of a
+                picture so you can watch each pass, benchmarks both sorts against the CPU and checks
+                every result.
+              </p>
+              <div class="tags mono">
+                <span>WebGPU</span><span>WGSL</span><span>CUDA</span><span>CUB</span>
+              </div>
+              <div class="links">
+                <a href="rc-gpu-sort/index.html">Demo</a
+                ><a href="https://github.com/rcarty/rc-gpu-sort">Code</a>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="block" id="writing">
+        <div class="sec-head"><h2>Writing</h2></div>
+        <div class="rows">
+          <a href="writing/fluid.html"><span>How the fluid at the top of this page works</span></a>
+          <a href="writing/buffers.html"
+            ><span>Sharing simulation buffers across Vulkan, OpenGL, Direct3D 12 and Metal</span></a
+          >
+          <a href="writing/sorting.html"><span>Radix and bitonic sort in WebGPU and CUDA</span></a>
+        </div>
+      </section>
+
+      <footer id="contact">
+        <div style="display: flex; flex-direction: column; gap: 12px">
+          <h2 style="font-size: 32px">Contact</h2>
+          <div class="email-row">
+            <button class="btn" type="button" id="show-email">Show email address</button>
+            <span id="email-out" hidden
+              ><a id="email-link" class="mono" style="font-size: 17px"></a
+              ><button class="btn" type="button" id="copy-email">Copy</button></span
+            >
+          </div>
+        </div>
+        <nav aria-label="Elsewhere">
+          <a href="https://github.com/rcarty">GitHub</a
+          ><a href="https://www.linkedin.com/in/ryan-carty/">LinkedIn</a>
+        </nav>
+      </footer>
+    </main>
+
+    <script type="module" src="src/page.js"></script>
+    <script type="module" src="src/hero.js"></script>
+    <script
+      data-goatcounter="https://rcarty.goatcounter.com/count"
+      async
+      src="https://gc.zgo.at/count.js"
+    ></script>
+  </body>
+</html>

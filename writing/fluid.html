@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>How the fluid at the top of this page works — Ryan Carty</title>
+    <meta
+      name="description"
+      content="How the live fluid on rcarty.github.io works: an MLS-MPM solver and screen-space fluid rendering in WebGPU."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0e11'/%3E%3Cg fill='%237cc4ff'%3E%3Ccircle cx='13' cy='18.5' r='6.2'/%3E%3Ccircle cx='22.5' cy='11' r='4' fill-opacity='.75'/%3E%3Ccircle cx='23' cy='22' r='2.8' fill-opacity='.6'/%3E%3Ccircle cx='9' cy='8.5' r='2.2' fill-opacity='.5'/%3E%3Ccircle cx='16.5' cy='6.5' r='1.4' fill-opacity='.4'/%3E%3C/g%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="article.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="inner">
+        <a class="name" href="../index.html">Ryan Carty</a>
+        <nav aria-label="Main">
+          <a href="../index.html#work">Work</a><a href="../index.html#projects">Projects</a
+          ><a href="../index.html#writing" aria-current="true">Writing</a
+          ><a href="../index.html#contact">Contact</a><a href="https://github.com/rcarty">GitHub</a>
+        </nav>
+      </div>
+    </header>
+    <div class="wrap">
+      <article>
+        <h1>How the fluid at the top of this page works</h1>
+
+        <p>
+          The header of this site is a live fluid simulation. It's about 73,000 particles on a
+          desktop, or 23,000 on a phone, simulated and drawn every frame in WebGPU with no
+          third-party libraries. It has two halves. A solver moves the particles, and a renderer
+          turns them into something that looks like one body of liquid. The copy below runs the same
+          code, and the buttons show the images the renderer builds on the way to the final one.
+        </p>
+
+        <figure id="demo">
+          <div class="stage">
+            <canvas aria-label="Live fluid simulation with switchable render passes"></canvas>
+            <p class="nogpu">
+              This browser doesn't support WebGPU, so the live copy can't run here. Recent Chrome,
+              Edge, Safari and Firefox all support it.
+            </p>
+          </div>
+          <div class="seg" role="group" aria-label="Render pass">
+            <button type="button" data-view="final" aria-pressed="true">Final</button>
+            <button type="button" data-view="depth" aria-pressed="false">Depth</button>
+            <button type="button" data-view="raw" aria-pressed="false">Raw normals</button>
+            <button type="button" data-view="normals" aria-pressed="false">Smoothed normals</button>
+            <button type="button" data-view="thickness" aria-pressed="false">Thickness</button>
+          </div>
+          <figcaption id="demo-caption">The finished image. Move the cursor through it.</figcaption>
+        </figure>
+
+        <h2>The solver</h2>
+        <p>
+          The fluid is simulated with MLS-MPM, a material point method. Particles carry the mass and
+          velocity. A grid is used as scratch space each step to work out how the particles push on
+          each other, and is cleared before the next one. One step is four compute dispatches.
+        </p>
+        <ul>
+          <li>Scatter each particle's mass and momentum to the grid cells around it.</li>
+          <li>
+            Read the density back at each particle, turn it into pressure, and scatter that to the
+            grid as momentum.
+          </li>
+          <li>
+            Divide momentum by mass to get a velocity per cell, add gravity, and stop flow through
+            the walls.
+          </li>
+          <li>Gather the grid velocity back to each particle and move it.</li>
+        </ul>
+        <p>
+          Each particle touches the 27 cells around it, weighted by a quadratic B-spline. It also
+          carries a 3×3 matrix <code>C</code> that describes how velocity varies around it. This is
+          the APIC transfer, and it keeps the rotation and shear that a plain weighted average would
+          smear away. Without it the fluid looks like syrup and goes still far too quickly.
+        </p>
+
+        <h2>Scattering without locks</h2>
+        <p>
+          The scatter passes have thousands of particles adding to the same grid cell at once, so
+          the adds have to be atomic. WGSL only has atomics for integers, so I multiply mass and
+          momentum by a million, add them as fixed-point <code>i32</code> values, and let the grid
+          pass divide the scale back out.
+        </p>
+        <pre><code>let m = wt * MASS;
+let mv = m * (p.v + p.C * dist);
+atomicAdd(&amp;cells[idx].m, i32(m * FP));
+atomicAdd(&amp;cells[idx].vx, i32(mv.x * FP));
+atomicAdd(&amp;cells[idx].vy, i32(mv.y * FP));
+atomicAdd(&amp;cells[idx].vz, i32(mv.z * FP));</code></pre>
+        <p>
+          The catch is range. A cell's momentum has to stay below about 2,147 in solver units before
+          the integer overflows, and this scene doesn't get anywhere near that. Integer adds also
+          give the same total in any order, which float adds don't.
+        </p>
+
+        <h2>Pressure</h2>
+        <p>
+          The fluid is weakly compressible. Density at a particle comes from the grid mass around
+          it, and pressure comes from how far that is above the rest density.
+        </p>
+        <pre><code>let volume = MASS / max(density, 1e-4);
+let pressure = max(0.0, u.stiffness * (pow(density / u.restDensity, 5.0) - 1.0));
+var stress = mat3x3f(-pressure, 0.0, 0.0, 0.0, -pressure, 0.0, 0.0, 0.0, -pressure);
+stress += (p.C + transpose(p.C)) * u.viscosity;</code></pre>
+        <p>
+          The fifth power makes the fluid push back hard once it's compressed a little, so it holds
+          its volume without needing a pressure solve. The <code>max</code> stops it pulling itself
+          together when density drops below rest, which otherwise shows up as particles clumping at
+          the surface. The last line adds a small viscosity from the velocity gradient that
+          <code>C</code> already holds.
+        </p>
+
+        <h2>Staying stable at 120 steps a second</h2>
+        <p>
+          The solver runs 120 steps a second. That's only two per frame on a 60 Hz display, which
+          isn't a lot to work with. Three things keep it stable.
+        </p>
+        <ul>
+          <li>
+            Particle speed is capped so nothing moves more than 0.8 of a cell in one step. A
+            particle that jumps past the cells it scattered to is how these solvers blow up.
+          </li>
+          <li>
+            Walls are soft. Each particle looks three steps ahead, and if it would end up inside a
+            wall it gets pushed back in proportion. The grid also zeroes the velocity component
+            across each wall in its outer two cells.
+          </li>
+          <li>Pressure is clamped at zero, as above.</li>
+        </ul>
+        <p>
+          Gravity tilts about five degrees each way on a slow sine, so the surface never comes to
+          rest. That stops if the browser asks for reduced motion.
+        </p>
+
+        <h2>From particles to a surface</h2>
+        <p>
+          Drawing 73,000 spheres looks like frogspawn. Screen-space fluid rendering draws the
+          spheres into offscreen images and then filters those images until they read as one
+          surface. Nothing is meshed, and the cost depends on the number of pixels more than the
+          number of particles.
+        </p>
+        <p>
+          Each particle is drawn as a square facing the camera. The fragment shader throws away
+          pixels outside the circle and works out how far the sphere's front surface is from the
+          camera at each pixel that's left.
+        </p>
+        <pre><code>let r2 = dot(i.uv, i.uv);
+if (r2 &gt; 1.0) {
+  discard;
+}
+let p = i.vp + vec3f(i.uv * r.radius, sqrt(1.0 - r2) * r.radius);
+o.d = -p.z;</code></pre>
+        <p>
+          That goes into a float target holding view-space depth. The Depth button shows it. A
+          second pass draws the same squares with additive blending into a thickness target, which
+          ends up holding how much fluid each pixel looks through.
+        </p>
+
+        <h2>Smoothing the depth</h2>
+        <p>
+          The depth image still has every sphere in it, which the Raw normals button makes obvious.
+          A plain blur would fix that, but it'd also smear the fluid's outline into the background.
+          A bilateral filter avoids the smearing by ignoring samples at a different depth, but it
+          ignores them on a surface seen at a shallow angle too, and that leaves streaks. So I went
+          with a narrow-range filter. It takes samples in pairs, one each side of the pixel.
+        </p>
+        <pre><code>if (a &lt; lo || b &lt; lo) {
+  continue;
+}
+if (a &gt; hi) {
+  a = d0 + r.radius;
+} else {
+  lo = min(lo, a - delta);
+  hi = max(hi, a + delta);
+}</code></pre>
+        <p>
+          If either sample is in front of the pixel, the pair is dropped, so nearer fluid doesn't
+          bleed in. A sample too far behind, the background included, counts as sitting just behind,
+          which rounds the outline off. Every sample that's accepted widens the range, so the filter
+          follows a sloping surface outwards.
+        </p>
+        <p>
+          The kernel radius follows the particle's size on screen, so fluid near the camera gets a
+          wide blur and distant fluid a narrow one, up to 24 pixels. It runs horizontally then
+          vertically, twice. The filter isn't truly separable, so this is a bit of a cheat, and the
+          second round hides most of the difference. Thickness gets an ordinary Gaussian blur.
+        </p>
+
+        <h2>Normals and shading</h2>
+        <p>
+          The last pass rebuilds a view-space position for each pixel and its neighbours from the
+          smoothed depth, and takes the normal from their differences. At the fluid's edge one
+          neighbour is background, so it uses whichever side has the smaller depth step. Otherwise
+          edge normals lean toward the background and the outline goes dark.
+        </p>
+        <p>The shading is four terms.</p>
+        <ul>
+          <li>
+            A body colour from Beer-Lambert absorption. Thin fluid is the accent blue and thick
+            fluid goes dark.
+          </li>
+          <li>
+            A reflection of a simple sky gradient, mixed in by a Schlick Fresnel term so it shows at
+            glancing angles.
+          </li>
+          <li>A tight specular highlight.</li>
+          <li>A faint rim in the accent colour.</li>
+        </ul>
+        <p>
+          Opacity comes from thickness as well, so spray is translucent and the body is solid. The
+          canvas uses premultiplied alpha, which is why the page shows through where there's no
+          fluid.
+        </p>
+
+        <h2>The cursor</h2>
+        <p>
+          The cursor becomes a ray from the camera. Particles within seven cells of that ray pick up
+          some of the cursor's motion, fading with distance from the ray. It's applied in the gather
+          pass, where each particle is already being updated, so it's close to free.
+        </p>
+
+        <h2>What it costs</h2>
+        <p>
+          At 60 Hz a frame is eight compute dispatches and nine render passes. Two draw the
+          particles, four smooth the depth, two blur the thickness and one shades. The canvas
+          renders at the display's pixel ratio, capped at 1.5. The loop stops when the header
+          scrolls off screen, and it skips a frame whenever the GPU still has more than one queued,
+          so a slow device drops frames without building a backlog.
+        </p>
+        <p>
+          On my desktop, an RTX 2080 Ti at 1920×1080 with the full 73,000 particles, the GPU
+          finishes a frame about 7 ms after it's submitted. That leaves plenty of room at 60 Hz. I
+          haven't measured a phone yet.
+        </p>
+
+        <h2>What I'd change</h2>
+        <ul>
+          <li>
+            Thin sheets on a breaking crest can still streak. Filtering each axis in turn is an
+            approximation of a full 2D filter, and that's where it shows.
+          </li>
+          <li>
+            There's no refraction. The background behind the fluid is a flat colour, so there's
+            nothing to bend yet.
+          </li>
+          <li>
+            The grid is dense. That's fine for a tank, but an open scene would need a sparse one.
+          </li>
+        </ul>
+
+        <h2>Code and references</h2>
+        <p>
+          The solver is in
+          <a href="https://github.com/rcarty/rcarty.github.io">this site's repository</a>
+          under <code>src/shaders</code>, and the renderer is in
+          <a href="https://github.com/rcarty/rc-webgpu-kit">rc-webgpu-kit</a> under
+          <code>src/render/ssf</code>. I built a production version of this renderer at INSYDIUM.
+          This one was written from scratch for the site and shares no code with it.
+        </p>
+        <ul>
+          <li>
+            Hu et al., A Moving Least Squares Material Point Method with Displacement Discontinuity
+            and Two-Way Rigid Body Coupling, SIGGRAPH 2018
+          </li>
+          <li>Jiang et al., The Affine Particle-In-Cell Method, SIGGRAPH 2015</li>
+          <li>
+            van der Laan, Green and Sainz, Screen Space Fluid Rendering with Curvature Flow, I3D
+            2009
+          </li>
+          <li>Green, Screen Space Fluid Rendering for Games, GDC 2010</li>
+          <li>
+            Truong and Yuksel, A Narrow-Range Filter for Screen-Space Fluid Rendering, I3D 2018
+          </li>
+          <li>
+            niall t.l., Notes and examples for the material point method, and the Incremental MPM
+            code that goes with it, for the density and pressure formulation
+          </li>
+        </ul>
+      </article>
+    </div>
+
+    <script type="module" src="fluid.js"></script>
+    <script
+      data-goatcounter="https://rcarty.goatcounter.com/count"
+      async
+      src="https://gc.zgo.at/count.js"
+    ></script>
+  </body>
+</html>

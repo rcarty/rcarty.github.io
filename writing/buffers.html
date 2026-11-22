@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>
+      Sharing simulation buffers across Vulkan, OpenGL, Direct3D 12 and Metal — Ryan Carty
+    </title>
+    <meta
+      name="description"
+      content="Sharing GPU simulation buffers with a host viewport across Vulkan, OpenGL, Direct3D 12 and Metal."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0e11'/%3E%3Cg fill='%237cc4ff'%3E%3Ccircle cx='13' cy='18.5' r='6.2'/%3E%3Ccircle cx='22.5' cy='11' r='4' fill-opacity='.75'/%3E%3Ccircle cx='23' cy='22' r='2.8' fill-opacity='.6'/%3E%3Ccircle cx='9' cy='8.5' r='2.2' fill-opacity='.5'/%3E%3Ccircle cx='16.5' cy='6.5' r='1.4' fill-opacity='.4'/%3E%3C/g%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="article.css" />
+    <style>
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0 0 22px;
+        font-size: 15px;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--line);
+        color: #cfd1d6;
+      }
+      th {
+        font-weight: 500;
+        font-size: 13px;
+        color: var(--dim);
+      }
+      .tablewrap {
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="inner">
+        <a class="name" href="../index.html">Ryan Carty</a>
+        <nav aria-label="Main">
+          <a href="../index.html#work">Work</a><a href="../index.html#projects">Projects</a
+          ><a href="../index.html#writing" aria-current="true">Writing</a
+          ><a href="../index.html#contact">Contact</a><a href="https://github.com/rcarty">GitHub</a>
+        </nav>
+      </div>
+    </header>
+    <div class="wrap">
+      <article>
+        <h1>Sharing simulation buffers across Vulkan, OpenGL, Direct3D 12 and Metal</h1>
+
+        <p>
+          NeXus simulates particles and fluids on the GPU and has to show them in the viewport of
+          the app it's plugged into. The simulation and the host app don't share a graphics API or
+          even a device. This is how the native viewport renderer I worked on at INSYDIUM gets
+          simulation data on screen without it leaving the GPU. The code is proprietary, so this
+          page describes the approach and the public APIs it uses.
+        </p>
+
+        <h2>The problem</h2>
+        <p>
+          The easy way is to read the simulation buffers back to the CPU and hand them to the host
+          as ordinary geometry. With millions of particles that's a big download and a big upload
+          every frame, and the viewport stalls while both happen. The data's already sitting in GPU
+          memory. The job is to let a second API see it.
+        </p>
+        <p>
+          The simulation runs on Vulkan, or on Metal on a Mac. The host's viewport might be Vulkan,
+          OpenGL, Direct3D 12 or Metal, depending on the app, the platform and the user's settings.
+          Each pairing needs its own way of sharing.
+        </p>
+
+        <h2>One mechanism per backend</h2>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Viewport API</th>
+                <th>How it sees the simulation buffer</th>
+                <th>Copies</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Vulkan</td>
+                <td>External memory, exported by one device and imported by the other</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>OpenGL</td>
+                <td>A memory object created from the same exported handle</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>Metal</td>
+                <td>The same buffer object</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>Direct3D 12</td>
+                <td>A mirror buffer on the GPU, kept in step with a shared fence</td>
+                <td>One, GPU to GPU</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2>Vulkan to Vulkan</h2>
+        <p>
+          The simulation allocates its buffers as exportable memory using
+          <code>VK_KHR_external_memory</code> and gets an OS handle for each allocation. That's a
+          file descriptor on Linux and a Win32 handle on Windows, and on a Mac it's the Metal buffer
+          itself. The renderer imports that handle on the host's device and binds a buffer to it.
+          Both devices now address the same memory, and the renderer reads particle positions
+          straight out of the simulation's storage. The simulation had to handle all three platforms
+          properly, so the same buffers could be passed to whichever API the host was drawing with.
+        </p>
+
+        <h2>OpenGL</h2>
+        <p>
+          OpenGL can do the same through <code>GL_EXT_memory_object</code>. The renderer creates a
+          memory object, imports the handle Vulkan exported, and creates a buffer backed by it with
+          <code>glNamedBufferStorageMemEXT</code>. From then on it's an ordinary GL buffer that
+          happens to hold live simulation data.
+        </p>
+
+        <h2>Metal</h2>
+        <p>
+          On a Mac the simulation runs on Metal too, on the same device as the host. The renderer is
+          handed the same buffer object the simulation writes to. This is the easy one.
+        </p>
+
+        <h2>Direct3D 12</h2>
+        <p>
+          Direct3D 12 can't open the memory handles Vulkan exports, so it can't see the simulation's
+          buffers directly. It gets a mirror, a second buffer that both APIs can open. The
+          simulation copies into the mirror on the GPU, and a fence shared between the two APIs
+          tells Direct3D when that copy has landed.
+        </p>
+        <p>
+          It isn't zero-copy. The copy never leaves the GPU though, which is what matters for frame
+          time. Direct3D creates the mirror and shares it with Vulkan, because the sharing only
+          works in that direction.
+        </p>
+
+        <h2>Drawing into the host's own targets</h2>
+        <p>
+          The renderer doesn't draw to its own image and composite it afterwards. Its output goes
+          straight into the host's colour and depth targets, so simulation data sorts correctly
+          against the rest of the scene and picks up the host's own post-processing.
+        </p>
+        <p>
+          Some hosts don't expose their device or their render pass to plug-ins. For those, the
+          library intercepts the graphics API inside the process. The plug-in issues a marker draw
+          at the point in the frame where the simulation should appear, and the library records its
+          own passes when it sees that marker go by.
+        </p>
+        <p>
+          The marker is the easy part. The plug-in draws something with a value the host would never
+          produce by itself, like a colour of 10 where the valid range stops at 1. That's easy to
+          spot, easy to intercept, and it marks exactly where our draws go.
+        </p>
+        <p>
+          The harder part was everything else the host draws. An app like Blender doesn't draw its
+          scene just once. It also writes depth, outlines and other buffers of its own, and our
+          intercepted draw would land in those passes the wrong way. That often showed up as a crash
+          when you clicked in the viewport, usually down to the host's ray-cast picking. The fix was
+          to draw into those depth and extra buffers the way the host expected. RenderDoc was a big
+          help here. It showed what each pass was, what it expected, and how ours could slot in
+          without the host noticing.
+        </p>
+
+        <h2>Testing four backends at once</h2>
+        <p>
+          A bug in one backend is easy to miss when you only ever look at one. The standalone Dear
+          ImGui app runs one simulation and shows it in side-by-side windows on different backends.
+          If Vulkan and OpenGL disagree, you see it straight away.
+        </p>
+
+        <h2>References</h2>
+        <ul>
+          <li>
+            Khronos, <code>VK_KHR_external_memory</code>, <code>VK_KHR_external_memory_fd</code> and
+            <code>VK_KHR_external_memory_win32</code>
+          </li>
+          <li>Khronos, <code>GL_EXT_memory_object</code></li>
+          <li>Khronos, <code>VK_KHR_external_semaphore</code></li>
+          <li>Microsoft, Direct3D 12 shared heaps and fences</li>
+        </ul>
+      </article>
+    </div>
+    <script
+      data-goatcounter="https://rcarty.goatcounter.com/count"
+      async
+      src="https://gc.zgo.at/count.js"
+    ></script>
+  </body>
+</html>
