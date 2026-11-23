@@ -179,23 +179,45 @@ o.d = -p.z;</code></pre>
         <pre><code>if (a &lt; lo || b &lt; lo) {
   continue;
 }
-if (a &gt; hi) {
-  a = d0 + r.radius;
-} else {
+let farA = a &gt; hi;
+if (!farA) {
   lo = min(lo, a - delta);
   hi = max(hi, a + delta);
+}
+// the same for b, then
+if (farA != farB) {
+  a = d0;
+  b = d0;
+} else if (farA) {
+  a = d0 + r.radius;
+  b = a;
 }</code></pre>
         <p>
           If either sample is in front of the pixel, the pair is dropped, so nearer fluid doesn't
-          bleed in. A sample too far behind, the background included, counts as sitting just behind,
-          which rounds the outline off. Every sample that's accepted widens the range, so the filter
-          follows a sloping surface outwards.
+          bleed in. Every sample that's accepted widens the range, so the filter follows a sloping
+          surface outwards. A sample can also be too far behind, and that includes the background.
+          If both sides are too far, they count as sitting just behind, which rounds off thin
+          features. If only one side is, the pair adds nothing.
+        </p>
+        <p>
+          That last rule differs from the paper, where a far sample always counts as just behind.
+          Near an outline that pulls the pixel back, and how far depends on how close the outline
+          is. The outline is a row of sphere bumps, so the bumps get dragged down the surface as
+          stripes. With the pair left out, a flat slab of particles comes out flat right up to its
+          far rim, within about half a degree of the true normal.
+        </p>
+        <p>
+          The range is 10.5 particle radii, the same as the paper. It needs to be that wide for
+          water seen edge-on. Depth changes so fast there that a tight range rejects samples from
+          its own surface.
         </p>
         <p>
           The kernel radius follows the particle's size on screen, so fluid near the camera gets a
           wide blur and distant fluid a narrow one, up to 24 pixels. It runs horizontally then
-          vertically, twice. The filter isn't truly separable, so this is a bit of a cheat, and the
-          second round hides most of the difference. Thickness gets an ordinary Gaussian blur.
+          vertically, twice. The filter isn't truly separable, so this is a bit of a cheat. Each row
+          or column is smoothed on its own and neighbouring lines can end up slightly apart, so a
+          last pass runs the same filter unsplit over a 9x9 window to even them out. Thickness gets
+          an ordinary Gaussian blur.
         </p>
 
         <h2>Normals and shading</h2>
@@ -233,8 +255,8 @@ if (a &gt; hi) {
 
         <h2>What it costs</h2>
         <p>
-          At 60 Hz a frame is eight compute dispatches and nine render passes. Two draw the
-          particles, four smooth the depth, two blur the thickness and one shades. The canvas
+          At 60 Hz a frame is eight compute dispatches and ten render passes. Two draw the
+          particles, five smooth the depth, two blur the thickness and one shades. The canvas
           renders at the display's pixel ratio, capped at 1.5. The loop stops when the header
           scrolls off screen, and it skips a frame whenever the GPU still has more than one queued,
           so a slow device drops frames without building a backlog.
