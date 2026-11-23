@@ -34,7 +34,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let gmax = vec3f(u.grid);
   // side walls stop a cell early. flat against them the stencil only sees wall cells
   // and a hard push pins particles there for good
-  let pos = clamp(p.position + nv * u.dt, vec3f(2.0, 1.0, 2.0), gmax - 2.0);
+  let lo = vec3f(2.0, 1.0, 2.0);
+  let hi = gmax - 2.0;
+  // bounce off the limits. clamping stacks particles on one point and they never separate
+  var pos = p.position + nv * u.dt;
+  pos = lo + abs(pos - lo);
+  pos = hi - abs(hi - pos);
   // soft walls
   let xn = pos + nv * u.dt * 3.0;
   let wmin = vec3f(3.0);
